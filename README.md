@@ -9,5 +9,5 @@ After that, use the script:
 - No options to run it on the large files
 
 ```bash
-./script.sh --small --profile --recompile
+./run.sh --small --profile --recompile
 ```
