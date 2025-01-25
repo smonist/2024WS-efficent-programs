@@ -2,8 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_LINE_LEN  1024
-#define MAX_FIELDS    64
+#define MAX_CAPACITY  16000000
+#define MAX_LINE_LEN  128
+#define MAX_FIELDS    8
 #define DELIM         ','
 
 /*
@@ -13,9 +14,9 @@
  * 'nfields' is how many fields are found.
  */
 typedef struct {
-    char  *line;
-    char  *fields[MAX_FIELDS];
-    int    nfields;
+    char *line;
+    char *fields[MAX_FIELDS];
+    int nfields;
 } record_t;
 
 /*
@@ -28,33 +29,22 @@ typedef struct {
  * usage, you may want more robust memory management.
  */
 static void read_csv_file(const char *filename,
-                          record_t **records_out, size_t *count_out)
-{
+                          record_t **records_out, size_t *count_out) {
     FILE *fp = fopen(filename, "r");
     if (!fp) {
         perror(filename);
         exit(EXIT_FAILURE);
     }
-
-    record_t *records = NULL;
-    size_t capacity    = 0;
-    size_t count       = 0;
+    const size_t capacity = MAX_CAPACITY;
+    record_t *records = malloc(capacity * sizeof(record_t));
+    size_t count = 0;
 
     char buffer[MAX_LINE_LEN];
+
     while (fgets(buffer, sizeof(buffer), fp)) {
         // Remove trailing newline if any
         char *nl = strchr(buffer, '\n');
         if (nl) *nl = '\0';
-
-        // Allocate a new record_t
-        if (count >= capacity) {
-            capacity = (capacity == 0 ? 128 : capacity * 2);
-            records = realloc(records, capacity * sizeof(record_t));
-            if (!records) {
-                fprintf(stderr, "Out of memory!\n");
-                exit(EXIT_FAILURE);
-            }
-        }
 
         // Copy line into record->line
         records[count].line = strdup(buffer);
@@ -66,7 +56,7 @@ static void read_csv_file(const char *filename,
         // Split into fields
         records[count].nfields = 0;
         char *save = NULL;
-        char *token = strtok_r(records[count].line, ",", &save);
+        char *token = strtok_r(strdup(buffer), ",", &save);
         while (token && records[count].nfields < MAX_FIELDS) {
             records[count].fields[records[count].nfields++] = token;
             token = strtok_r(NULL, ",", &save);
@@ -77,14 +67,13 @@ static void read_csv_file(const char *filename,
 
     fclose(fp);
     *records_out = records;
-    *count_out   = count;
+    *count_out = count;
 }
 
 /*
  * Free the memory from read_csv_file.
  */
-static void free_records(record_t *records, size_t count)
-{
+static void free_records(record_t *records, size_t count) {
     if (!records) return;
     for (size_t i = 0; i < count; i++) {
         free(records[i].line);
@@ -96,15 +85,14 @@ static void free_records(record_t *records, size_t count)
  * Compare function for qsort to sort record_t by a given 1-based field index (col).
  * If col is out of range, we treat missing fields as empty string.
  */
-static int compare_by_column(const void *a, const void *b, void *arg)
-{
-    int col = *(int*)arg; // 1-based column index
-    const record_t *ra = (const record_t*)a;
-    const record_t *rb = (const record_t*)b;
+static int compare_by_column(const void *a, const void *b, void *arg) {
+    int col = *(int *) arg; // 1-based column index
+    const record_t *ra = (const record_t *) a;
+    const record_t *rb = (const record_t *) b;
 
     // If col > nfields, treat that as empty ""
-    const char *fa = (col <= ra->nfields) ? ra->fields[col-1] : "";
-    const char *fb = (col <= rb->nfields) ? rb->fields[col-1] : "";
+    const char *fa = (col <= ra->nfields) ? ra->fields[col - 1] : "";
+    const char *fb = (col <= rb->nfields) ? rb->fields[col - 1] : "";
 
     return strcmp(fa, fb);
 }
@@ -112,8 +100,7 @@ static int compare_by_column(const void *a, const void *b, void *arg)
 /*
  * Sort an array of records by a 1-based column index.
  */
-static void sort_by_column(record_t *records, size_t count, int col)
-{
+static void sort_by_column(record_t *records, size_t count, int col) {
     // Use the GNU extension qsort_r if available, or a static global for col.
     // Here we use the C11 qsort_s-like approach with a cookie:
     // some platforms only have qsort, but let's show a typical pattern.
@@ -128,10 +115,10 @@ static void sort_by_column(record_t *records, size_t count, int col)
 
     // local compare that references g_sort_col
     int local_compare(const void *a, const void *b) {
-        const record_t *ra = (const record_t*)a;
-        const record_t *rb = (const record_t*)b;
-        const char *fa = (g_sort_col <= ra->nfields) ? ra->fields[g_sort_col-1] : "";
-        const char *fb = (g_sort_col <= rb->nfields) ? rb->fields[g_sort_col-1] : "";
+        const record_t *ra = (const record_t *) a;
+        const record_t *rb = (const record_t *) b;
+        const char *fa = (g_sort_col <= ra->nfields) ? ra->fields[g_sort_col - 1] : "";
+        const char *fb = (g_sort_col <= rb->nfields) ? rb->fields[g_sort_col - 1] : "";
         return strcmp(fa, fb);
     }
 
@@ -152,91 +139,87 @@ static void sort_by_column(record_t *records, size_t count, int col)
  */
 static record_t *join_on_columns(const record_t *left, size_t left_count, int left_col,
                                  const record_t *right, size_t right_count, int right_col,
-                                 size_t *out_count)
-{
-    size_t cap = 128;  // initial capacity
+                                 size_t *out_count) {
     size_t cnt = 0;
-    record_t *result = malloc(cap * sizeof(record_t));
+    record_t *result = malloc(MAX_CAPACITY * sizeof(record_t));
     if (!result) {
         fprintf(stderr, "Out of memory in join!\n");
         exit(EXIT_FAILURE);
     }
 
-    // We assume 'left' and 'right' are each sorted by the respective join column.
     size_t i = 0, j = 0;
     while (i < left_count && j < right_count) {
-        // Retrieve the join fields (or empty if out of range)
-        const char *lkey = (left_col  <= left[i].nfields)  ? left[i].fields[left_col - 1]  : "";
-        const char *rkey = (right_col <= right[j].nfields) ? right[j].fields[right_col - 1] : "";
+        const char *lkey = left_col <= left[i].nfields ? left[i].fields[left_col - 1] : "";
+        const char *rkey = right_col <= right[j].nfields ? right[j].fields[right_col - 1] : "";
 
-        int cmp = strcmp(lkey, rkey);
+        const int cmp = strcmp(lkey, rkey);
         if (cmp == 0) {
-            // We have a match, produce a joined record
-            // We combine:
-            //   [join key],
-            //   [all left fields except the left_col],
-            //   [all right fields except the right_col]
+            // Both keys match, collect all combinations of left and right rows
+            size_t li = i;
+            size_t rj = j;
 
-            // Construct a new line in a temporary buffer
-            char buf[4*MAX_LINE_LEN];
-            buf[0] = '\0';
+            // Iterate over all left records with the same key
+            while (li < left_count &&
+                   strcmp(lkey, left_col <= left[li].nfields ? left[li].fields[left_col - 1] : "") == 0) {
+                rj = j; // Reset right index for each left record
+                while (rj < right_count &&
+                       strcmp(rkey, right_col <= right[rj].nfields ? right[rj].fields[right_col - 1] : "") == 0) {
+                    // Join the current left[li] and right[rj]
+                    char buf[4 * MAX_LINE_LEN];
+                    buf[0] = '\0';
 
-            // Put the join key first
-            snprintf(buf, sizeof(buf), "%s", lkey);
+                    // Add the join key
+                    snprintf(buf, sizeof(buf), "%s", lkey);
 
-            // Append left fields (excluding left_col)
-            for (int lf = 0; lf < left[i].nfields; lf++) {
-                if ((lf + 1) == left_col) {
-                    // skip join column because we already put lkey
-                    continue;
+                    // Append left fields (excluding left_col)
+                    for (int lf = 0; lf < left[li].nfields; lf++) {
+                        if ((lf + 1) == left_col) continue;
+                        strncat(buf, ",", sizeof(buf) - strlen(buf) - 1);
+                        strncat(buf, left[li].fields[lf], sizeof(buf) - strlen(buf) - 1);
+                    }
+
+                    // Append right fields (excluding right_col)
+                    for (int rf = 0; rf < right[rj].nfields; rf++) {
+                        if ((rf + 1) == right_col) continue;
+                        strncat(buf, ",", sizeof(buf) - strlen(buf) - 1);
+                        strncat(buf, right[rj].fields[rf], sizeof(buf) - strlen(buf) - 1);
+                    }
+
+                    // Allocate and parse this joined line
+                    result[cnt].line = strdup(buf);
+                    result[cnt].nfields = 0;
+
+                    char *save = NULL;
+                    char *token = strtok_r(strdup(buf), ",", &save);
+                    while (token && result[cnt].nfields < MAX_FIELDS) {
+                        result[cnt].fields[result[cnt].nfields++] = token;
+                        token = strtok_r(NULL, ",", &save);
+                    }
+                    cnt++;
+
+                    // Check for overflow
+                    if (cnt >= MAX_CAPACITY) {
+                        fprintf(stderr, "Exceeded maximum capacity in join!\n");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    rj++;
                 }
-                strncat(buf, ",", sizeof(buf) - strlen(buf) - 1);
-                strncat(buf, left[i].fields[lf], sizeof(buf) - strlen(buf) - 1);
+                li++;
             }
 
-            // Append right fields (excluding right_col)
-            for (int rf = 0; rf < right[j].nfields; rf++) {
-                if ((rf + 1) == right_col) {
-                    continue;
-                }
-                strncat(buf, ",", sizeof(buf) - strlen(buf) - 1);
-                strncat(buf, right[j].fields[rf], sizeof(buf) - strlen(buf) - 1);
+            // Move i and j past this key
+            while (i < left_count &&
+                   strcmp(lkey, left_col <= left[i].nfields ? left[i].fields[left_col - 1] : "") == 0) {
+                i++;
             }
-
-            // Store into the result array
-            if (cnt >= cap) {
-                cap *= 2;
-                record_t *tmp = realloc(result, cap * sizeof(record_t));
-                if (!tmp) {
-                    fprintf(stderr, "Out of memory in join reallocation!\n");
-                    exit(EXIT_FAILURE);
-                }
-                result = tmp;
+            while (j < right_count &&
+                   strcmp(rkey, right_col <= right[j].nfields ? right[j].fields[right_col - 1] : "") == 0) {
+                j++;
             }
-            // Allocate and parse this joined line
-            result[cnt].line = strdup(buf);
-            result[cnt].nfields = 0;
-
-            // Split the joined line by DELIM
-            char *save = NULL;
-            char *token = strtok_r(result[cnt].line, ",", &save);
-            while (token && result[cnt].nfields < MAX_FIELDS) {
-                result[cnt].fields[result[cnt].nfields++] = token;
-                token = strtok_r(NULL, ",", &save);
-            }
-            cnt++;
-
-            // Move forward in both arrays to handle the next lines
-            // If you want to handle duplicates fully (e.g. multiple lines with same key),
-            // you'll need nested loops or additional logic. For simplicity:
-            i++;
-            j++;
-        }
-        else if (cmp < 0) {
-            // left key < right key
+        } else if (cmp < 0) {
             i++;
         } else {
-            // right key < left key
             j++;
         }
     }
@@ -245,11 +228,11 @@ static record_t *join_on_columns(const record_t *left, size_t left_count, int le
     return result;
 }
 
+
 /*
  * Print all records to stdout as CSV lines.
  */
-static void print_records(const record_t *records, size_t count)
-{
+static void print_records(const record_t *records, size_t count) {
     for (size_t i = 0; i < count; i++) {
         // Rebuild line from fields or just print the original line.
         // If we want exactly the CSV we constructed, do:
@@ -261,20 +244,21 @@ static void print_records(const record_t *records, size_t count)
     }
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     if (argc != 5) {
         fprintf(stderr, "Usage: %s file1 file2 file3 file4\n", argv[0]);
         return EXIT_FAILURE;
     }
 
     // 1) Read & sort file1 by 1st column
-    record_t *f1_records = NULL; size_t f1_count = 0;
+    record_t *f1_records = NULL;
+    size_t f1_count = 0;
     read_csv_file(argv[1], &f1_records, &f1_count);
     sort_by_column(f1_records, f1_count, 1);
 
     // 2) Read & sort file2 by 1st column
-    record_t *f2_records = NULL; size_t f2_count = 0;
+    record_t *f2_records = NULL;
+    size_t f2_count = 0;
     read_csv_file(argv[2], &f2_records, &f2_count);
     sort_by_column(f2_records, f2_count, 1);
 
@@ -289,7 +273,8 @@ int main(int argc, char *argv[])
     free_records(f2_records, f2_count);
 
     // 4) Read file3, sort by 1st column, join with joined12
-    record_t *f3_records = NULL; size_t f3_count = 0;
+    record_t *f3_records = NULL;
+    size_t f3_count = 0;
     read_csv_file(argv[3], &f3_records, &f3_count);
     sort_by_column(f3_records, f3_count, 1);
 
@@ -306,7 +291,8 @@ int main(int argc, char *argv[])
     sort_by_column(joined123, joined123_count, 4);
 
     // 6) Read & sort file4 by 1st column
-    record_t *f4_records = NULL; size_t f4_count = 0;
+    record_t *f4_records = NULL;
+    size_t f4_count = 0;
     read_csv_file(argv[4], &f4_records, &f4_count);
     sort_by_column(f4_records, f4_count, 1);
 
