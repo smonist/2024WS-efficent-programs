@@ -82,48 +82,22 @@ static void free_records(record_t *records, size_t count) {
 }
 
 /*
- * Compare function for qsort to sort record_t by a given 1-based field index (col).
- * If col is out of range, we treat missing fields as empty string.
+ * Sort an array of records by a 1-based column index.
  */
-static int compare_by_column(const void *a, const void *b, void *arg) {
-    int col = *(int *) arg; // 1-based column index
-    const record_t *ra = (const record_t *) a;
-    const record_t *rb = (const record_t *) b;
+static int g_sort_col;
 
-    // If col > nfields, treat that as empty ""
-    const char *fa = (col <= ra->nfields) ? ra->fields[col - 1] : "";
-    const char *fb = (col <= rb->nfields) ? rb->fields[col - 1] : "";
-
+// local compare that references g_sort_col
+int local_compare(const void *a, const void *b) {
+    const record_t *ra = a;
+    const record_t *rb = b;
+    const char *fa = g_sort_col <= ra->nfields ? ra->fields[g_sort_col - 1] : "";
+    const char *fb = g_sort_col <= rb->nfields ? rb->fields[g_sort_col - 1] : "";
     return strcmp(fa, fb);
 }
 
-/*
- * Sort an array of records by a 1-based column index.
- */
-static void sort_by_column(record_t *records, size_t count, int col) {
-    // Use the GNU extension qsort_r if available, or a static global for col.
-    // Here we use the C11 qsort_s-like approach with a cookie:
-    // some platforms only have qsort, but let's show a typical pattern.
-#ifdef _GNU_SOURCE
-    qsort_r(records, count, sizeof(record_t), &col, compare_by_column);
-#else
-    // We'll use a file-scope global or static variable for col if needed.
-    // For simplicity, let's do a small wrapper:
-    // Just store col in a static and call a compare function ignoring arg.
-    static int g_sort_col;
+static void sort_by_column(record_t *records, const size_t count, const int col) {
     g_sort_col = col;
-
-    // local compare that references g_sort_col
-    int local_compare(const void *a, const void *b) {
-        const record_t *ra = (const record_t *) a;
-        const record_t *rb = (const record_t *) b;
-        const char *fa = (g_sort_col <= ra->nfields) ? ra->fields[g_sort_col - 1] : "";
-        const char *fb = (g_sort_col <= rb->nfields) ? rb->fields[g_sort_col - 1] : "";
-        return strcmp(fa, fb);
-    }
-
     qsort(records, count, sizeof(record_t), local_compare);
-#endif
 }
 
 /*
@@ -137,8 +111,8 @@ static void sort_by_column(record_t *records, size_t count, int col) {
  *
  * This function merges them in ascending order of the join key.
  */
-static record_t *join_on_columns(const record_t *left, size_t left_count, int left_col,
-                                 const record_t *right, size_t right_count, int right_col,
+static record_t *join_on_columns(const record_t *left, const size_t left_count, const int left_col,
+                                 const record_t *right, const size_t right_count, const int right_col,
                                  size_t *out_count) {
     size_t cnt = 0;
     record_t *result = malloc(MAX_CAPACITY * sizeof(record_t));
@@ -156,12 +130,11 @@ static record_t *join_on_columns(const record_t *left, size_t left_count, int le
         if (cmp == 0) {
             // Both keys match, collect all combinations of left and right rows
             size_t li = i;
-            size_t rj = j;
 
             // Iterate over all left records with the same key
             while (li < left_count &&
                    strcmp(lkey, left_col <= left[li].nfields ? left[li].fields[left_col - 1] : "") == 0) {
-                rj = j; // Reset right index for each left record
+                size_t rj = j; // Reset right index for each left record
                 while (rj < right_count &&
                        strcmp(rkey, right_col <= right[rj].nfields ? right[rj].fields[right_col - 1] : "") == 0) {
                     // Join the current left[li] and right[rj]
@@ -232,7 +205,7 @@ static record_t *join_on_columns(const record_t *left, size_t left_count, int le
 /*
  * Print all records to stdout as CSV lines.
  */
-static void print_records(const record_t *records, size_t count) {
+static void print_records(const record_t *records, const size_t count) {
     for (size_t i = 0; i < count; i++) {
         // Rebuild line from fields or just print the original line.
         // If we want exactly the CSV we constructed, do:
@@ -250,29 +223,24 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    // 1) Read & sort file1 by 1st column
     record_t *f1_records = NULL;
     size_t f1_count = 0;
     read_csv_file(argv[1], &f1_records, &f1_count);
     sort_by_column(f1_records, f1_count, 1);
 
-    // 2) Read & sort file2 by 1st column
     record_t *f2_records = NULL;
     size_t f2_count = 0;
     read_csv_file(argv[2], &f2_records, &f2_count);
     sort_by_column(f2_records, f2_count, 1);
 
-    // 3) Join the two on their 1st columns
     size_t joined12_count = 0;
     record_t *joined12 = join_on_columns(f1_records, f1_count, 1,
                                          f2_records, f2_count, 1,
                                          &joined12_count);
 
-    // We can free the original sets now if we want
     free_records(f1_records, f1_count);
     free_records(f2_records, f2_count);
 
-    // 4) Read file3, sort by 1st column, join with joined12
     record_t *f3_records = NULL;
     size_t f3_count = 0;
     read_csv_file(argv[3], &f3_records, &f3_count);
@@ -286,17 +254,13 @@ int main(int argc, char *argv[]) {
     free_records(joined12, joined12_count);
     free_records(f3_records, f3_count);
 
-    // 5) Sort the result by the 4th column
-    //    (Be mindful that some lines may not have 4 columns.)
     sort_by_column(joined123, joined123_count, 4);
 
-    // 6) Read & sort file4 by 1st column
     record_t *f4_records = NULL;
     size_t f4_count = 0;
     read_csv_file(argv[4], &f4_records, &f4_count);
     sort_by_column(f4_records, f4_count, 1);
 
-    // 7) Join joined123 (on col 4) with file4 (on col 1)
     size_t final_count = 0;
     record_t *final_join = join_on_columns(joined123, joined123_count, 4,
                                            f4_records, f4_count, 1,
@@ -305,11 +269,7 @@ int main(int argc, char *argv[]) {
     free_records(joined123, joined123_count);
     free_records(f4_records, f4_count);
 
-    // 8) Print final results
     print_records(final_join, final_count);
-
-    // Cleanup
     free_records(final_join, final_count);
-
     return 0;
 }
