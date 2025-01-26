@@ -67,17 +67,38 @@ static inline void free_records(record_t *records, size_t count) {
 
 static int g_sort_col;
 
-int local_compare(const void *a, const void *b) {
-    const record_t *ra = a;
-    const record_t *rb = b;
-    const char *fa = g_sort_col <= ra->nfields ? ra->fields[g_sort_col - 1] : "";
-    const char *fb = g_sort_col <= rb->nfields ? rb->fields[g_sort_col - 1] : "";
+int local_compare(const record_t *a, const record_t *b) {
+    const char *fa = g_sort_col <= a->nfields ? a->fields[g_sort_col - 1] : "";
+    const char *fb = g_sort_col <= b->nfields ? b->fields[g_sort_col - 1] : "";
     return strcmp(fa, fb);
+}
+
+void quicksort(record_t *records, int low, int high, int (*compare)(const record_t *, const record_t *)) {
+    if (low < high) {
+        record_t pivot = records[high];
+        int i = low - 1;
+        for (int j = low; j < high; j++) {
+            if (compare(&records[j], &pivot) <= 0) {
+                i++;
+                record_t temp = records[i];
+                records[i] = records[j];
+                records[j] = temp;
+            }
+        }
+        record_t temp = records[i + 1];
+        records[i + 1] = records[high];
+        records[high] = temp;
+
+        int pivot_index = i + 1;
+
+        quicksort(records, low, pivot_index - 1, compare);
+        quicksort(records, pivot_index + 1, high, compare);
+    }
 }
 
 static inline void sort_by_column(record_t *records, const size_t count, const int col) {
     g_sort_col = col;
-    qsort(records, count, sizeof(record_t), local_compare);
+    quicksort(records, 0, count - 1, local_compare);
 }
 
 static inline record_t *join_on_columns(const record_t *left, const size_t left_count, const int left_col,
@@ -160,15 +181,15 @@ static inline record_t *join_on_columns(const record_t *left, const size_t left_
     return result;
 }
 
-static inline void print_records_as_csv(const record_t *records, const size_t count) {
-    for (size_t i = 0; i < count; i++) {
-        for (int f = 0; f < records[i].nfields; f++) {
-            if (f > 0) printf(",");
-            printf("%s", records[i].fields[f]);
-        }
-        printf("\n");
-    }
-}
+// static inline void print_records_as_csv(const record_t *records, const size_t count) {
+//     for (size_t i = 0; i < count; i++) {
+//         for (int f = 0; f < records[i].nfields; f++) {
+//             if (f > 0) printf(",");
+//             printf("%s", records[i].fields[f]);
+//         }
+//         printf("\n");
+//     }
+// }
 
 int main(const int argc, char *argv[]) {
     if (argc != 5) {
@@ -222,7 +243,7 @@ int main(const int argc, char *argv[]) {
     free_records(joined123, joined123_count);
     free_records(f4_records, f4_count);
 
-    print_records_as_csv(final_join, final_count);
+    // print_records_as_csv(final_join, final_count);
     free_records(final_join, final_count);
     return 0;
 }
