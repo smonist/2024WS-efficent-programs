@@ -46,6 +46,11 @@ static inline void read_csv_file(const char *filename,
 
     const size_t capacity = MAX_CAPACITY;
     record_t *records = malloc(capacity * sizeof(record_t));
+    if (!records) {
+        fprintf(stderr, "Out of memory!\n");
+        munmap(mapped, filesize);
+        exit(EXIT_FAILURE);
+    }
     size_t count = 0;
 
     char *line_start = mapped;
@@ -57,21 +62,24 @@ static inline void read_csv_file(const char *filename,
             line_end++;
         }
 
-        // Create a line buffer
+        // Determine line length and handle edge cases
         size_t line_length = line_end - line_start;
         if (line_length > 0) {
-            // Remove trailing newline if any
+            // Remove trailing carriage return if any
             if (line_end > line_start && *(line_end - 1) == '\r') {
                 line_length--;
             }
 
-            // Copy line into record->line
-            records[count].line = strndup(line_start, line_length);
+            // Allocate memory for the line and copy its contents
+            records[count].line = malloc(line_length + 1); // +1 for null terminator
             if (!records[count].line) {
                 fprintf(stderr, "Out of memory!\n");
                 munmap(mapped, filesize);
+                free(records); // Free allocated records before exiting
                 exit(EXIT_FAILURE);
             }
+            memcpy(records[count].line, line_start, line_length);
+            records[count].line[line_length] = '\0'; // Null-terminate the string
 
             // Split into fields
             records[count].nfields = 0;

@@ -10,5 +10,8 @@
 // map file into memory
 174921209519
 
+// replaced strndup with manual malloc and memcpy
+172976390987
+
 // Reference
 155414886890
