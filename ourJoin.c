@@ -15,7 +15,7 @@ typedef struct {
 } record_t;
 
 
-static void read_csv_file(const char *filename,
+static inline void read_csv_file(const char *filename,
                           record_t **records_out, size_t *count_out) {
     FILE *fp = fopen(filename, "r");
     if (!fp) {
@@ -57,7 +57,7 @@ static void read_csv_file(const char *filename,
     *count_out = count;
 }
 
-static void free_records(record_t *records, size_t count) {
+static inline void free_records(record_t *records, size_t count) {
     if (!records) return;
     for (size_t i = 0; i < count; i++) {
         free(records[i].line);
@@ -75,12 +75,12 @@ int local_compare(const void *a, const void *b) {
     return strcmp(fa, fb);
 }
 
-static void sort_by_column(record_t *records, const size_t count, const int col) {
+static inline void sort_by_column(record_t *records, const size_t count, const int col) {
     g_sort_col = col;
     qsort(records, count, sizeof(record_t), local_compare);
 }
 
-static record_t *join_on_columns(const record_t *left, const size_t left_count, const int left_col,
+static inline record_t *join_on_columns(const record_t *left, const size_t left_count, const int left_col,
                                  const record_t *right, const size_t right_count, const int right_col,
                                  size_t *out_count) {
     size_t cnt = 0;
@@ -160,7 +160,7 @@ static record_t *join_on_columns(const record_t *left, const size_t left_count, 
     return result;
 }
 
-static void print_records_as_csv(const record_t *records, const size_t count) {
+static inline void print_records_as_csv(const record_t *records, const size_t count) {
     for (size_t i = 0; i < count; i++) {
         for (int f = 0; f < records[i].nfields; f++) {
             if (f > 0) printf(",");
