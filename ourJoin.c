@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #define MAX_CAPACITY  16000000
 #define MAX_LINE_LEN  128
@@ -17,42 +21,76 @@ typedef struct {
 
 static inline void read_csv_file(const char *filename,
                           record_t **records_out, size_t *count_out) {
-    FILE *fp = fopen(filename, "r");
-    if (!fp) {
+    int fd = open(filename, O_RDONLY);
+    if (fd == -1) {
         perror(filename);
         exit(EXIT_FAILURE);
     }
+
+    struct stat sb;
+    if (fstat(fd, &sb) == -1) {
+        perror("fstat");
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+
+    size_t filesize = sb.st_size;
+    char *mapped = mmap(NULL, filesize, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (mapped == MAP_FAILED) {
+        perror("mmap");
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+
+    close(fd); // Close the file descriptor after mapping
+
     const size_t capacity = MAX_CAPACITY;
     record_t *records = malloc(capacity * sizeof(record_t));
     size_t count = 0;
 
-    char buffer[MAX_LINE_LEN];
+    char *line_start = mapped;
+    char *line_end = mapped;
 
-    while (fgets(buffer, sizeof(buffer), fp)) {
-        // Remove trailing newline if any
-        char *nl = strchr(buffer, '\n');
-        if (nl) *nl = '\0';
-
-        // Copy line into record->line
-        records[count].line = strdup(buffer);
-        if (!records[count].line) {
-            fprintf(stderr, "Out of memory!\n");
-            exit(EXIT_FAILURE);
+    while (line_end < mapped + filesize) {
+        // Find the end of the line
+        while (line_end < mapped + filesize && *line_end != '\n') {
+            line_end++;
         }
 
-        // Split into fields
-        records[count].nfields = 0;
-        char *save = NULL;
-        char *token = strtok_r(strdup(buffer), ",", &save);
-        while (token && records[count].nfields < MAX_FIELDS) {
-            records[count].fields[records[count].nfields++] = token;
-            token = strtok_r(NULL, ",", &save);
+        // Create a line buffer
+        size_t line_length = line_end - line_start;
+        if (line_length > 0) {
+            // Remove trailing newline if any
+            if (line_end > line_start && *(line_end - 1) == '\r') {
+                line_length--;
+            }
+
+            // Copy line into record->line
+            records[count].line = strndup(line_start, line_length);
+            if (!records[count].line) {
+                fprintf(stderr, "Out of memory!\n");
+                munmap(mapped, filesize);
+                exit(EXIT_FAILURE);
+            }
+
+            // Split into fields
+            records[count].nfields = 0;
+            char *save = NULL;
+            char *token = strtok_r(records[count].line, ",", &save);
+            while (token && records[count].nfields < MAX_FIELDS) {
+                records[count].fields[records[count].nfields++] = token;
+                token = strtok_r(NULL, ",", &save);
+            }
+
+            count++;
         }
 
-        ++count;
+        // Move to the next line
+        line_end++;
+        line_start = line_end;
     }
 
-    fclose(fp);
+    munmap(mapped, filesize); // Unmap the file
     *records_out = records;
     *count_out = count;
 }
