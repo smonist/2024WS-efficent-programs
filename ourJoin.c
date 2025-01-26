@@ -171,27 +171,47 @@ static inline record_t *join_on_columns(const record_t *left, const size_t left_
                 size_t rj = j;
                 while (rj < right_count &&
                        strcmp(rkey, right_col <= right[rj].nfields ? right[rj].fields[right_col - 1] : "") == 0) {
-                    char buf[4 * MAX_LINE_LEN];
-                    buf[0] = '\0';
-                    snprintf(buf, sizeof(buf), "%s", lkey);
+
+                    // Calculate the required buffer size for the joined line
+                    size_t line_size = strlen(lkey) + 1; // Include delimiter
 
                     for (int lf = 0; lf < left[li].nfields; lf++) {
                         if (lf + 1 == left_col) continue;
-                        strncat(buf, ",", sizeof(buf) - strlen(buf) - 1);
-                        strncat(buf, left[li].fields[lf], sizeof(buf) - strlen(buf) - 1);
+                        line_size += strlen(left[li].fields[lf]) + 1;
                     }
 
                     for (int rf = 0; rf < right[rj].nfields; rf++) {
                         if ((rf + 1) == right_col) continue;
-                        strncat(buf, ",", sizeof(buf) - strlen(buf) - 1);
-                        strncat(buf, right[rj].fields[rf], sizeof(buf) - strlen(buf) - 1);
+                        line_size += strlen(right[rj].fields[rf]) + 1;
                     }
 
-                    result[cnt].line = strdup(buf);
+                    // Allocate buffer for the joined line
+                    char *line = malloc(line_size);
+                    if (!line) {
+                        fprintf(stderr, "Out of memory in join!\n");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    // Construct the joined line
+                    char *ptr = line;
+                    ptr += sprintf(ptr, "%s", lkey);
+
+                    for (int lf = 0; lf < left[li].nfields; lf++) {
+                        if (lf + 1 == left_col) continue;
+                        ptr += sprintf(ptr, ",%s", left[li].fields[lf]);
+                    }
+
+                    for (int rf = 0; rf < right[rj].nfields; rf++) {
+                        if ((rf + 1) == right_col) continue;
+                        ptr += sprintf(ptr, ",%s", right[rj].fields[rf]);
+                    }
+
+                    // Populate the result record
+                    result[cnt].line = line;
                     result[cnt].nfields = 0;
 
                     char *save = NULL;
-                    char *token = strtok_r(strdup(buf), ",", &save);
+                    char *token = strtok_r(line, ",", &save);
                     while (token && result[cnt].nfields < MAX_FIELDS) {
                         result[cnt].fields[result[cnt].nfields++] = token;
                         token = strtok_r(NULL, ",", &save);

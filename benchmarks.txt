@@ -13,5 +13,8 @@
 // replaced strndup with manual malloc and memcpy
 172976390987
 
+// replaced snprintf and strdup with pointers and dynamically allocated buffers
+167883213091
+
 // Reference
 155414886890
