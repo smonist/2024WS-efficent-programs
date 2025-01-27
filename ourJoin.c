@@ -247,15 +247,15 @@ static inline record_t *join_on_columns(const record_t *left, const size_t left_
     return result;
 }
 
-// static inline void print_records_as_csv(const record_t *records, const size_t count) {
-//     for (size_t i = 0; i < count; i++) {
-//         for (int f = 0; f < records[i].nfields; f++) {
-//             if (f > 0) printf(",");
-//             printf("%s", records[i].fields[f]);
-//         }
-//         printf("\n");
-//     }
-// }
+static inline void print_records_as_csv(const record_t *records, const size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        for (int f = 0; f < records[i].nfields; f++) {
+            if (f > 0) printf(",");
+            printf("%s", records[i].fields[f]);
+        }
+        printf("\n");
+    }
+}
 
 int main(const int argc, char *argv[]) {
     if (argc != 5) {
@@ -309,7 +309,7 @@ int main(const int argc, char *argv[]) {
     free_records(joined123, joined123_count);
     free_records(f4_records, f4_count);
 
-    // print_records_as_csv(final_join, final_count);
+    print_records_as_csv(final_join, final_count);
     free_records(final_join, final_count);
     return 0;
 }
