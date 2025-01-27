@@ -16,5 +16,8 @@
 // replaced snprintf and strdup with pointers and dynamically allocated buffers
 167883213091
 
+// buffered output
+164521559456
+
 // Reference
 155414886890
