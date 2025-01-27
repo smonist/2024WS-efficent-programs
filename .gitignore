@@ -5,3 +5,4 @@ join*
 *.csv
 cmake-build-debug
 .idea
+.DS_Store
