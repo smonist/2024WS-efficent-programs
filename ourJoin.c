@@ -257,6 +257,36 @@ static inline void print_records_as_csv(const record_t *records, const size_t co
     }
 }
 
+static inline void print_records_as_csv_buffered(const record_t *records, const size_t count) {
+    char buffer[MAX_LINE_LEN]; // Preallocate a buffer for assembling each line
+
+    for (size_t i = 0; i < count; i++) {
+        char *ptr = buffer; // Pointer to the current position in the buffer
+        size_t remaining = MAX_LINE_LEN; // Track remaining buffer space
+
+        for (int f = 0; f < records[i].nfields; f++) {
+            if (f > 0) { // Add delimiter before every field except the first
+                *ptr++ = ',';
+                remaining--;
+            }
+
+            // Copy the field into the buffer
+            size_t len = strnlen(records[i].fields[f], remaining);
+            if (len < remaining) {
+                memcpy(ptr, records[i].fields[f], len);
+                ptr += len;
+                remaining -= len;
+            } else {
+                fprintf(stderr, "Record exceeds maximum line length!\n");
+                break;
+            }
+        }
+
+        *ptr = '\0'; // Null-terminate the buffer
+        puts(buffer); // Output the line using a single system call
+    }
+}
+
 int main(const int argc, char *argv[]) {
     if (argc != 5) {
         fprintf(stderr, "Usage: %s file1 file2 file3 file4\n", argv[0]);
@@ -309,7 +339,7 @@ int main(const int argc, char *argv[]) {
     free_records(joined123, joined123_count);
     free_records(f4_records, f4_count);
 
-    print_records_as_csv(final_join, final_count);
+    print_records_as_csv_buffered(final_join, final_count);
     free_records(final_join, final_count);
     return 0;
 }
