@@ -25,12 +25,16 @@ large_command="./ourJoin data/f1.csv data/f2.csv data/f3.csv data/f4.csv"
 profile_prefix=""
 small=false
 recompile_flag=false
+validate=false
+
+validate_command=""
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
     --small) small=true ;;
     --profile) profile_prefix="LC_NUMERIC=en_US perf stat -e cycles " ;;
     --recompile) recompile_flag=true ;;
+    --validate) validate=true ;;
     *) echo -e "\033[1;33mUnknown option: $1\033[0m" && exit 1 ;;
   esac
   shift
@@ -53,7 +57,14 @@ if [ "$small" = false ]; then
   command_to_run="$large_command"
 fi
 
+if [ "$validate" = true ]; then
+  validate_command="|sort|diff - data/abcd.csv"
+  if [ "$small" = false ]; then
+    validate_command="|sort|diff - data/output.csv"
+  fi
+fi
+
 # Execute the command with profiling if enabled
-final_command="${profile_prefix}${command_to_run}"
+final_command="${profile_prefix}${command_to_run}${validate_command}"
 echo -e "\033[1;34mRunning command:\033[0m $final_command"
 eval "$final_command"
